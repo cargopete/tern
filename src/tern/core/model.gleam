@@ -29,6 +29,16 @@ pub fn role_label(role: NodeRole) -> String {
   }
 }
 
+pub fn role_from_label(label: String) -> Option(NodeRole) {
+  case label {
+    "Origin" -> Some(Origin)
+    "Entity" -> Some(Entity)
+    "Operation" -> Some(Operation)
+    "Consumer" -> Some(Consumer)
+    _ -> None
+  }
+}
+
 /// An internally-assigned node id (a UUID string in practice). Generation is an
 /// effect, so it happens in the backend layer — core stays pure.
 pub type NodeId {

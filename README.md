@@ -62,8 +62,8 @@ real Apache AGE database; the pure core is fully unit-tested.
 | ✅ | **M0** · spike | Gleam ↔ Apache AGE round-trip: create a graph, run Cypher, decode `agtype` |
 | ✅ | **M1** · `tern_core` | Node/edge model, lineage events, the `StorageBackend` behaviour, temporal `as-of` logic — pure, no I/O. **12 tests** |
 | ✅ | **M2** · `tern_age` | The AGE backend: per-tenant graphs, idempotent node/edge upserts, atomic writes (graph + snapshot in one transaction), `find_node`. **5 integration tests** vs real AGE |
-| ⬜ | **M3** · traversal | Temporal traversal — `as-of(T)`, upstream/downstream/both, depth bounds, pagination; soft-delete & revival |
-| ⬜ | **M3.5** · concurrency | Per-label unique constraint (AGE's `MERGE` is not atomic under concurrent writers) |
+| ✅ | **M3** · traversal | Temporal traversal — `query_at_time`: `as-of(T)`, upstream/downstream/both, depth bounds, pagination. **6 integration tests** |
+| ⬜ | **M3.5** · concurrency | Per-label unique constraint (AGE's `MERGE` is not atomic under concurrent writers); full temporal-reachability (path must be entirely live) |
 | ⬜ | **M4** · `tern_server` | A `wisp`/`mist` HTTP API — ingest, query, **SSE streaming**, health |
 | ⬜ | **M5** · `tern_consumer` | A `wren`-driven event consumer with retry / dead-letter (every event is the retry unit) |
 | ⬜ | **M6** · publish | Docs, examples, CI with a real AGE service, Hex release |
@@ -230,7 +230,24 @@ case store.find_node(tenant, Identity("enriched_orders", "table", Entity)) {
 }
 ```
 
-> Temporal traversal (`store.query_at_time`) arrives in M3.
+### Traverse the graph as-of a point in time
+
+```gleam
+import tern/core/storage.{TimelineQuery, Downstream}
+
+let assert Ok(graph) =
+  store.query_at_time(TimelineQuery(
+    tenant:,
+    root: Identity("orders-db", "postgres", Origin),
+    at: now,            // "as of" this instant
+    direction: Downstream,
+    max_depth: 5,
+    page: 0,
+    page_size: 100,
+  ))
+
+// graph.nodes / graph.edges (live as-of `at`), graph.total, graph.page
+```
 
 ---
 
@@ -341,6 +358,11 @@ A few hard-won details, carried over from the production service the ideas came 
   retryable unique violation — is tracked as a hardening milestone.
 - **Cypher is currently built by string interpolation** with single-quote escaping.
   Parameterised Cypher is a planned follow-up.
+- **Traversal semantics (M3).** `query_at_time` does depth/direction in Cypher, then
+  filters nodes and edges by `is_live_at(T)` in Gleam. It returns the live nodes within
+  structural reach and the live edges among them. Full temporal *reachability* (where the
+  entire path must be live, so a node orphaned by an upstream deletion drops out) is a
+  planned refinement (M3.5).
 
 ---
 

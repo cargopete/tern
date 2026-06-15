@@ -24,8 +24,8 @@ import tern/core/model.{
 }
 import tern/core/storage.{
   type EdgeUpsert, type NodeUpsert, type PagedGraph, type StorageBackend,
-  type TernError, type TimelineQuery, type WriteSession, Permanent, Transient,
-  WriteSession,
+  type TernError, type TimelineQuery, type WriteSession, Both, Downstream,
+  Permanent, Transient, Upstream, WriteSession,
 }
 import youid/uuid
 
@@ -270,11 +270,160 @@ fn find_node(
   }
 }
 
+/// Temporal traversal. Depth + direction are done in Cypher; the `as-of(T)`
+/// filtering reuses the pure `model.is_live_at` predicate in Gleam, which keeps
+/// the (gnarly) temporal logic in one tested place rather than in Cypher.
 fn query_at_time(
-  _conn: pog.Connection,
-  _query: TimelineQuery,
+  conn: pog.Connection,
+  query: TimelineQuery,
 ) -> Result(PagedGraph, TernError) {
-  Error(Permanent("query_at_time arrives in M3"))
+  let g = model.graph_name(query.tenant)
+  let depth = int.to_string(query.max_depth)
+  let arrow = case query.direction {
+    Downstream -> "-[*0.." <> depth <> "]->"
+    Upstream -> "<-[*0.." <> depth <> "]-"
+    Both -> "-[*0.." <> depth <> "]-"
+  }
+  let root = query.root
+
+  // reachable nodes (returned as scalar columns — AGE won't cast a vertex to text)
+  let nodes_cy =
+    "MATCH (r:"
+    <> model.role_label(root.role)
+    <> " {external_id:'"
+    <> esc(root.external_id)
+    <> "', kind:'"
+    <> esc(root.kind)
+    <> "'})"
+    <> arrow
+    <> "(m) RETURN DISTINCT labels(m)[0], m.node_id, m.external_id, m.kind, m.name, m.valid_from, m.deleted_at"
+  use rows <- result.try(cypher_nodes(conn, g, nodes_cy))
+  let live_nodes =
+    rows
+    |> list.filter_map(row_to_node)
+    |> list.filter(model.node_live_at(_, query.at))
+
+  // edges among the live node set
+  let ids = list.map(live_nodes, fn(n) { node_id_string(n.id) })
+  use edges <- result.try(case ids {
+    [] -> Ok([])
+    _ -> {
+      let in_list =
+        "["
+        <> string.join(list.map(ids, fn(i) { "'" <> esc(i) <> "'" }), ", ")
+        <> "]"
+      let edges_cy =
+        "MATCH (a)-[e:flows_into]->(b) WHERE a.node_id IN "
+        <> in_list
+        <> " AND b.node_id IN "
+        <> in_list
+        <> " RETURN a.node_id + '|' + b.node_id + '|' + toString(e.valid_from) + '|' + coalesce(toString(e.deleted_at), '')"
+      use lines <- result.try(cypher(conn, g, edges_cy))
+      Ok(list.filter_map(lines, parse_edge_line))
+    }
+  })
+  let live_edges = list.filter(edges, model.edge_live_at(_, query.at))
+
+  // paginate nodes; keep all live edges among the live set
+  let total = list.length(live_nodes)
+  let paged =
+    live_nodes
+    |> list.drop(query.page * query.page_size)
+    |> list.take(query.page_size)
+  Ok(storage.PagedGraph(
+    nodes: paged,
+    edges: live_edges,
+    total:,
+    page: query.page,
+  ))
+}
+
+/// Run a 7-column scalar node projection and decode the rows.
+fn cypher_nodes(
+  conn: pog.Connection,
+  g: String,
+  cy: String,
+) -> Result(
+  List(#(String, String, String, String, String, String, Option(String))),
+  TernError,
+) {
+  let sql =
+    "SELECT label::text, nid::text, eid::text, knd::text, nm::text, vf::text, dl::text FROM cypher('"
+    <> g
+    <> "', $$ "
+    <> cy
+    <> " $$) AS (label agtype, nid agtype, eid agtype, knd agtype, nm agtype, vf agtype, dl agtype)"
+  let row = {
+    use label <- decode.field(0, decode.string)
+    use nid <- decode.field(1, decode.string)
+    use eid <- decode.field(2, decode.string)
+    use knd <- decode.field(3, decode.string)
+    use nm <- decode.field(4, decode.string)
+    use vf <- decode.field(5, decode.string)
+    use dl <- decode.field(6, decode.optional(decode.string))
+    decode.success(#(label, nid, eid, knd, nm, vf, dl))
+  }
+  case pog.query(sql) |> pog.returning(row) |> pog.execute(conn) {
+    Ok(returned) -> Ok(returned.rows)
+    Error(e) -> Error(classify(e))
+  }
+}
+
+fn row_to_node(
+  row: #(String, String, String, String, String, String, Option(String)),
+) -> Result(Node, Nil) {
+  let #(label, nid, eid, knd, nm, vf, dl) = row
+  case model.role_from_label(dequote(label)) {
+    Some(role) ->
+      Ok(model.Node(
+        id: NodeId(dequote(nid)),
+        external_id: dequote(eid),
+        kind: dequote(knd),
+        role: role,
+        name: dequote(nm),
+        properties: dict.new(),
+        valid_from: parse_unix(vf),
+        deleted_at: parse_unix_opt(dl),
+      ))
+    None -> Error(Nil)
+  }
+}
+
+fn parse_edge_line(line: String) -> Result(model.Edge, Nil) {
+  case string.split(dequote(line), "|") {
+    [from, to, vf, dl] ->
+      Ok(model.Edge(
+        from: NodeId(from),
+        to: NodeId(to),
+        label: "flows_into",
+        valid_from: parse_unix(vf),
+        deleted_at: parse_unix_opt(Some(dl)),
+      ))
+    _ -> Error(Nil)
+  }
+}
+
+fn parse_unix(s: String) -> Timestamp {
+  case int.parse(dequote(s)) {
+    Ok(n) -> timestamp.from_unix_seconds(n)
+    Error(_) -> timestamp.from_unix_seconds(0)
+  }
+}
+
+fn parse_unix_opt(o: Option(String)) -> Option(Timestamp) {
+  case o {
+    None -> None
+    Some(s) ->
+      case dequote(s) {
+        "" -> None
+        "null" -> None
+        x ->
+          case int.parse(x) {
+            Ok(n) -> Some(timestamp.from_unix_seconds(n))
+            Error(_) -> None
+          }
+      }
+  }
 }
 
 // --- cypher plumbing -------------------------------------------------------
