@@ -5,8 +5,9 @@
 //// node snapshots live in a plain table in the SAME database, so one Postgres
 //// transaction covers both (the atomic-write guarantee).
 ////
-//// M2 scope: ensure-ready, atomic writes (node/edge/snapshot), find, idempotent
-//// upserts. Temporal traversal (`query_at_time`) lands in M3.
+//// Implemented: ensure-ready, atomic writes (node/edge/snapshot), find,
+//// idempotent upserts, and temporal traversal (`query_at_time` — as-of, depth,
+//// direction, pagination).
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
