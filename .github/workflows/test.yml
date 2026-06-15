@@ -3,21 +3,57 @@ name: test
 on:
   push:
     branches:
-      - master
       - main
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    services:
+      # Apache AGE (Postgres + the AGE extension) for the integration tests.
+      age:
+        image: apache/age:release_PG16_1.6.0
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5455:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      # RabbitMQ for the consumer integration test.
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
+
+      - name: Provision the AGE database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          psql -h localhost -p 5455 -U postgres -d postgres -c "CREATE DATABASE tern;"
+          psql -h localhost -p 5455 -U postgres -d tern -c "CREATE EXTENSION IF NOT EXISTS age;"
+          psql -h localhost -p 5455 -U postgres -d tern -c "ALTER DATABASE tern SET session_preload_libraries = 'age';"
+          psql -h localhost -p 5455 -U postgres -d tern -c 'ALTER DATABASE tern SET search_path = ag_catalog, "$user", public;'
+
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "28"
+          otp-version: "27"
           gleam-version: "1.16.0"
           rebar3-version: "3"
-          # elixir-version: "1"
+
       - run: gleam deps download
-      - run: gleam test
       - run: gleam format --check src test
+      - run: gleam build
+      - name: Run tests (incl. AGE + RabbitMQ integration)
+        env:
+          TERN_IT: "1"
+        run: gleam test

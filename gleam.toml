@@ -3,6 +3,11 @@ version = "0.1.0"
 description = "Embeddable, temporal data-lineage on the BEAM, backed by Apache AGE."
 licences = ["MIT"]
 repository = { type = "github", user = "cargopete", repo = "tern" }
+links = [{ title = "Plan", href = "https://github.com/cargopete/tern/blob/main/PLAN.md" }]
+gleam = ">= 1.16.0"
+
+# Runnable demos, not part of the library API — kept out of the published docs.
+internal_modules = ["serve", "consume_demo", "tern"]
 
 #
 # For a full reference of all the available options, you can have a look at

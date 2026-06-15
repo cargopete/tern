@@ -6,8 +6,8 @@
 </p>
 
 <p align="center">
-  <a href="https://hex.pm/packages/tern"><img src="https://img.shields.io/hexpm/v/tern" alt="Package Version"></a>
-  <a href="https://hexdocs.pm/tern/"><img src="https://img.shields.io/badge/hex-docs-ffaff3" alt="Hex Docs"></a>
+  <a href="https://github.com/cargopete/tern/actions/workflows/test.yml"><img src="https://github.com/cargopete/tern/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
+  <img src="https://img.shields.io/badge/status-pre--release-orange" alt="pre-release">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
@@ -67,7 +67,7 @@ real Apache AGE database; the pure core is fully unit-tested.
 | ✅ | **M4** · `tern_server` | A `wisp`/`mist` HTTP API — `POST /v1/events` (ingest), `GET /v1/graph` (query), health. Plus `tern/ingest` (event → graph). 1 integration test + verified end-to-end over HTTP |
 | ⬜ | **M4.5** · streaming | `GET /v1/graph/stream` Server-Sent Events (needs the streaming backend method) |
 | ✅ | **M5** · `tern_consumer` | A [`wren`](https://github.com/cargopete/wren)-driven event consumer; every event is the retry unit (`Ack`/`Retry`/`DeadLetter` from `TernError.is_transient`). 2 tests + verified end-to-end over RabbitMQ |
-| ⬜ | **M6** · publish | Docs, examples, CI with a real AGE service, Hex release |
+| 🟡 | **M6** · release-ready | CI stands up real AGE + RabbitMQ; docs build clean; CHANGELOG + release checklist. **Hex publish itself is gated** — see [`RELEASING.md`](./RELEASING.md) |
 
 ---
 
@@ -115,10 +115,7 @@ You need [Gleam](https://gleam.run) (with Erlang) and Docker.
 #    configures the session to auto-load AGE (see db/init.sql)
 docker compose up -d
 
-# 2. Add tern to your project
-gleam add tern
-
-# 3. Run the bundled M0 demo — writes and reads back a 5-node pipeline
+# 2. Run the bundled demo — writes and reads back a 5-node pipeline
 gleam run
 ```
 
