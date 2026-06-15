@@ -64,7 +64,8 @@ real Apache AGE database; the pure core is fully unit-tested.
 | ✅ | **M2** · `tern_age` | The AGE backend: per-tenant graphs, idempotent node/edge upserts, atomic writes (graph + snapshot in one transaction), `find_node`. **5 integration tests** vs real AGE |
 | ✅ | **M3** · traversal | Temporal traversal — `query_at_time`: `as-of(T)`, upstream/downstream/both, depth bounds, pagination. **6 integration tests** |
 | ⬜ | **M3.5** · concurrency | Per-label unique constraint (AGE's `MERGE` is not atomic under concurrent writers); full temporal-reachability (path must be entirely live) |
-| ⬜ | **M4** · `tern_server` | A `wisp`/`mist` HTTP API — ingest, query, **SSE streaming**, health |
+| ✅ | **M4** · `tern_server` | A `wisp`/`mist` HTTP API — `POST /v1/events` (ingest), `GET /v1/graph` (query), health. Plus `tern/ingest` (event → graph). 1 integration test + verified end-to-end over HTTP |
+| ⬜ | **M4.5** · streaming | `GET /v1/graph/stream` Server-Sent Events (needs the streaming backend method) |
 | ⬜ | **M5** · `tern_consumer` | A `wren`-driven event consumer with retry / dead-letter (every event is the retry unit) |
 | ⬜ | **M6** · publish | Docs, examples, CI with a real AGE service, Hex release |
 
@@ -250,6 +251,39 @@ let assert Ok(graph) =
 ```
 
 ---
+
+## HTTP server
+
+`tern/server` exposes a `wisp`/`mist` API over any `StorageBackend`:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET`  | `/health` | liveness |
+| `POST` | `/v1/events` | ingest a lineage event (one atomic transaction) |
+| `GET`  | `/v1/graph` | temporal traversal as JSON |
+
+Run it:
+
+```sh
+docker compose up -d
+gleam run -m serve          # listens on :8080
+```
+
+Ingest an event and read the graph back:
+
+```sh
+curl -X POST localhost:8080/v1/events -H 'content-type: application/json' -d '{
+  "tenant": "acme", "role": "origin", "externalId": "orders-db", "kind": "postgres",
+  "name": "Orders DB", "operation": "create", "occurredAt": 1000,
+  "targets": [{"externalId": "raw_orders", "kind": "asset"}]
+}'
+
+curl "localhost:8080/v1/graph?tenant=acme&externalId=orders-db&kind=postgres&role=origin&direction=downstream&depth=5"
+# → {"nodes":[…],"edges":[…],"total":2,"page":0}
+```
+
+The JSON shape (`{nodes, edges, total, page}`) is deliberately simple to render in a
+browser graph viewer.
 
 ## Architecture
 

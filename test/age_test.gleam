@@ -13,12 +13,14 @@ import gleam/time/timestamp
 import gleeunit/should
 import pog
 import tern/age
+import tern/core/event.{Create, Link, OriginLinks}
 import tern/core/model.{
   type Tenant, Consumer, Entity, Identity, Operation, Origin, Tenant,
 }
 import tern/core/storage.{
   Downstream, EdgeUpsert, NodeUpsert, TimelineQuery, Upstream,
 }
+import tern/ingest
 import youid/uuid
 
 /// Run `f` with a live AGE backend, or skip if TERN_IT isn't set.
@@ -277,6 +279,39 @@ pub fn pagination_limits_the_page_but_reports_total_test() {
     ))
   list.length(g.nodes) |> should.equal(2)
   g.total |> should.equal(5)
+}
+
+// --- M4: ingest.apply (event → graph) --------------------------------------
+
+pub fn ingest_apply_builds_graph_from_an_event_test() {
+  use backend, tenant <- with_backend
+  let ev =
+    event.LineageEvent(
+      role: Origin,
+      external_id: "odb",
+      kind: "postgres",
+      name: "Orders DB",
+      operation: Create,
+      links: OriginLinks([Link("t1", "asset", [])]),
+      append: False,
+      occurred_at: at(1),
+      properties: dict.new(),
+    )
+  let assert Ok(_) = backend.write(tenant, fn(s) { ingest.apply(s, ev) })
+
+  let assert Ok(g) =
+    backend.query_at_time(TimelineQuery(
+      tenant,
+      Identity("odb", "postgres", Origin),
+      at(10),
+      Downstream,
+      5,
+      0,
+      100,
+    ))
+  // the origin and the entity it targets, joined by one edge
+  list.length(g.nodes) |> should.equal(2)
+  list.length(g.edges) |> should.equal(1)
 }
 
 // --- tiny test helpers -----------------------------------------------------
