@@ -42,6 +42,8 @@ they came from*.
 - [Concepts](#concepts)
 - [Quick start](#quick-start)
 - [Usage](#usage)
+- [HTTP server](#http-server)
+- [Event consumer (wren)](#event-consumer-wren)
 - [Architecture](#architecture)
 - [The storage contract](#the-storage-contract)
 - [Why Apache AGE](#why-apache-age)
@@ -54,8 +56,10 @@ they came from*.
 
 ## Status & roadmap
 
-**Early, but the foundations are solid and tested.** The write path runs against a
-real Apache AGE database; the pure core is fully unit-tested.
+**Functional end-to-end, pre-release.** You can ingest lineage events over **HTTP or
+AMQP**, store them transactionally in **Apache AGE**, and query the graph **as-of any
+point in time**. 26 tests, green against real AGE + RabbitMQ. Not yet on Hex —
+see [`RELEASING.md`](./RELEASING.md).
 
 | | Milestone | What it delivers |
 |---|---|---|
@@ -320,9 +324,9 @@ gleam run -m consume_demo
 tern is layered so the model is reusable and the storage is swappable:
 
 ```
-                wren  (AMQP, Gleam)         ─┐
-                wisp/mist (HTTP+SSE)        ─┤
-                                             ▼
+   tern/consumer (wren / AMQP)  ─┐
+   tern/server   (wisp+mist HTTP)─┤   tern/ingest (event → writes)
+                                  ▼
    tern/core ──── the model + events + the StorageBackend contract (pure)
         ▲                       │
         │ implements            │ used by
@@ -336,9 +340,10 @@ tern is layered so the model is reusable and the storage is swappable:
   This is the vocabulary everything else speaks.
 - **`tern/age`** — the first `StorageBackend`: Cypher generation, `pog` connection,
   transactions, agtype handling.
-
-Planned layers (`tern_server`, `tern_consumer`) sit on top and depend only on the
-`StorageBackend` contract — never on `tern/age` directly.
+- **`tern/ingest`** — turns a `LineageEvent` into graph writes (shared by server + consumer).
+- **`tern/server`** and **`tern/consumer`** sit on top and depend only on the
+  `StorageBackend` contract — never on `tern/age` directly. `tern/wire` holds the shared
+  JSON codec.
 
 ---
 
