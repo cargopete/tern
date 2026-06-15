@@ -160,9 +160,9 @@ fn create_node(
     <> esc(id.kind)
     <> "'}) SET n.name = '"
     <> esc(u.name)
-    <> "', n.valid_from = "
+    <> "', n.valid_from = coalesce(n.valid_from, "
     <> unix(u.valid_from)
-    <> ", n.node_id = coalesce(n.node_id, '"
+    <> "), n.node_id = coalesce(n.node_id, '"
     <> fresh
     <> "') RETURN n.node_id"
   use rows <- result.try(cypher(tx, g, cy))

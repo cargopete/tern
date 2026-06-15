@@ -125,6 +125,32 @@ gleam run
 
 ---
 
+## Showcase: the time-travel explorer
+
+tern ships with a web explorer that demonstrates its defining feature — querying the
+graph **as it was at any instant**:
+
+```sh
+docker compose up -d
+gleam run -m showcase     # seed an evolving pipeline (t=1000..5000, incl. a deletion)
+gleam run -m serve        # then open http://localhost:8080/
+```
+
+Drag the timeline slider and watch the lineage graph **grow** as events arrive, then a
+node **vanish** the moment it's deleted — and the pipeline downstream of it break.
+Because tern soft-deletes, the past is never lost; you're just asking a different moment.
+
+```
+t=1500        t=2500              t=3500 (full)          t=5500 (enrich deleted)
+orders-db     orders-db           orders-db              orders-db
+ ├─raw_orders  ├─raw─┐             ├─raw─┐                ├─raw_orders
+ └─customers   └─cust┴▶enrich      └─cust┴▶enrich         └─customers
+                       └▶enriched         └▶enriched      enriched_orders
+                                            └▶dashboard   exec-dashboard
+```
+
+---
+
 ## Usage
 
 ### Connect and prepare a tenant

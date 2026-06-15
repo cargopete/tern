@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>tern · lineage time-travel</title>
+<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<style>
+  :root {
+    --bg:#0b0f17; --panel:#141b2b; --border:#26324a; --text:#dce3f0; --muted:#8a98b5;
+    --accent:#5aa2ff; --accent2:#9d7bff;
+    --origin:#e0a33a; --entity:#4690fb; --operation:#43c46a; --consumer:#bd8cff; --edge:#62718f;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  header { padding:12px 20px; border-bottom:1px solid var(--border); background:var(--panel);
+           display:flex; align-items:baseline; gap:12px; }
+  header h1 { font-size:18px; letter-spacing:-.01em; }
+  header .sub { color:var(--muted); font-size:13px; }
+  header .bird { font-size:20px; }
+
+  /* the timeline — the star */
+  .timeline { padding:16px 24px 14px; background:var(--panel); border-bottom:1px solid var(--border); }
+  .timeline .row { display:flex; align-items:center; gap:16px; }
+  .asof { font:700 15px/1 var(--mono); color:var(--accent); white-space:nowrap;
+          background:#0a1020; border:1px solid var(--border); border-radius:8px; padding:8px 12px; min-width:150px; text-align:center; }
+  input[type=range] { -webkit-appearance:none; appearance:none; flex:1; height:6px; border-radius:6px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2)); outline:none; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; height:20px; border-radius:50%;
+    background:#fff; border:3px solid var(--accent); cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.5); }
+  .ticks { display:flex; justify-content:space-between; margin-top:8px; font:600 10px/1 var(--mono); color:var(--muted); }
+  .ticks span { position:relative; }
+
+  .controls { display:flex; gap:8px; align-items:flex-end; padding:10px 24px; border-bottom:1px solid var(--border);
+              background:var(--panel); flex-wrap:wrap; }
+  .field { display:flex; flex-direction:column; gap:3px; }
+  .field label { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  select, input[type=text] { background:var(--bg); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:6px 9px; font-size:12px; font-family:var(--mono); }
+  .stat { margin-left:auto; display:flex; gap:18px; font:600 13px/1 var(--mono); color:var(--muted); }
+  .stat b { color:var(--text); }
+
+  .main { flex:1; display:flex; min-height:0; }
+  #cy { flex:1; background:radial-gradient(circle at 20px 20px,#161f33 1px,transparent 1px) 0 0/34px 34px, var(--bg); }
+  .legend { width:230px; border-left:1px solid var(--border); background:var(--panel); padding:16px; font-size:12px; }
+  .legend h3 { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; }
+  .li { display:flex; align-items:center; gap:9px; margin:7px 0; }
+  .dot { width:12px; height:12px; border-radius:50%; }
+  .note { margin-top:18px; color:var(--muted); line-height:1.5; font-size:12px; }
+  #detail { margin-top:14px; white-space:pre-wrap; word-break:break-all; font:11px/1.4 var(--mono);
+            color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px; min-height:54px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="bird">🐦</span>
+  <h1>tern</h1>
+  <span class="sub">lineage time-travel — drag the slider to see the graph <i>as it was</i></span>
+</header>
+
+<div class="timeline">
+  <div class="row">
+    <span class="asof" id="asof">t = —</span>
+    <input type="range" id="time" min="900" max="5600" step="50" value="5600" />
+  </div>
+  <div class="ticks">
+    <span>t1000 · orders-db</span><span>t2000 · enrich</span><span>t3000 · dashboard</span>
+    <span>t4000 · events pipeline</span><span>t5000 · enrich deleted</span>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="field"><label>Tenant</label><input type="text" id="tenant" value="showcase" /></div>
+  <div class="field"><label>Root</label>
+    <select id="root">
+      <option value="orders-db|postgres|origin" selected>orders-db (origin)</option>
+      <option value="events-api|kafka|origin">events-api (origin)</option>
+      <option value="enriched_orders|asset|entity">enriched_orders (entity)</option>
+      <option value="exec-dashboard|dashboard|consumer">exec-dashboard (consumer)</option>
+    </select>
+  </div>
+  <div class="field"><label>Direction</label>
+    <select id="dir"><option value="both" selected>both</option><option value="downstream">downstream</option><option value="upstream">upstream</option></select>
+  </div>
+  <div class="field"><label>Depth</label>
+    <select id="depth"><option>3</option><option selected>6</option><option>10</option></select>
+  </div>
+  <div class="stat"><span>nodes <b id="nN">0</b></span><span>edges <b id="nE">0</b></span></div>
+</div>
+
+<div class="main">
+  <div id="cy"></div>
+  <div class="legend">
+    <h3>roles</h3>
+    <div class="li"><span class="dot" style="background:var(--origin)"></span> origin</div>
+    <div class="li"><span class="dot" style="background:var(--entity)"></span> entity</div>
+    <div class="li"><span class="dot" style="background:var(--operation)"></span> operation</div>
+    <div class="li"><span class="dot" style="background:var(--consumer)"></span> consumer</div>
+    <div class="note">
+      Every query is <b>as-of</b> the slider time. Slide past <b>t5000</b> and watch
+      <b>enrich-orders</b> vanish — and the pipeline downstream of it break — because it
+      was soft-deleted, not destroyed. Nothing is ever lost; you just ask a different
+      moment.
+    </div>
+    <h3 style="margin-top:18px">selection</h3>
+    <div id="detail">Click a node or edge…</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = { Origin:'#e0a33a', Entity:'#4690fb', Operation:'#43c46a', Consumer:'#bd8cff' };
+
+const cy = cytoscape({
+  container: $('cy'),
+  style: [
+    { selector:'node', style:{
+        'background-color': e => COLORS[e.data('role')] || '#888',
+        'label':'data(label)', 'color':'#dce3f0', 'font-size':11, 'text-wrap':'wrap', 'text-max-width':110,
+        'text-valign':'bottom', 'text-margin-y':5, 'width':38, 'height':38, 'border-width':2, 'border-color':'#0b0f17' } },
+    { selector:'node:selected', style:{ 'border-color':'#fff', 'border-width':3 } },
+    { selector:'edge', style:{
+        'width':2, 'line-color':'#62718f', 'target-arrow-color':'#62718f', 'target-arrow-shape':'triangle',
+        'curve-style':'bezier', 'label':'data(label)', 'font-size':8, 'color':'#8a98b5', 'text-rotation':'autorotate' } },
+  ],
+});
+
+cy.on('tap','node,edge', e => $('detail').textContent = JSON.stringify(e.target.data().raw, null, 2));
+cy.on('tap', e => { if (e.target === cy) $('detail').textContent = 'Click a node or edge…'; });
+
+async function refresh() {
+  const t = $('time').value;
+  $('asof').textContent = 't = ' + t;
+  const [ext, kind, role] = $('root').value.split('|');
+  const params = new URLSearchParams({
+    tenant: $('tenant').value, externalId: ext, kind, role,
+    direction: $('dir').value, depth: $('depth').value, at: t, pageSize: '500',
+  });
+  let data;
+  try {
+    const r = await fetch('/v1/graph?' + params);
+    if (!r.ok) { return; }
+    data = await r.json();
+  } catch { return; }
+
+  const ids = new Set(data.nodes.map(n => n.nodeId));
+  const els = [
+    ...data.nodes.map(n => ({ data:{ id:n.nodeId, label:n.name + '\n(' + n.role.toLowerCase() + ')', role:n.role, raw:n } })),
+    ...data.edges.filter(e => ids.has(e.from) && ids.has(e.to))
+                 .map(e => ({ data:{ id:e.from+'>'+e.to, source:e.from, target:e.to, label:e.label, raw:e } })),
+  ];
+  cy.elements().remove();
+  cy.add(els);
+  cy.layout({ name:'breadthfirst', directed:true, padding:30, spacingFactor:1.25, animate:false }).run();
+  $('nN').textContent = data.nodes.length;
+  $('nE').textContent = cy.edges().length;
+}
+
+['input','change'].forEach(ev => $('time').addEventListener(ev, refresh));
+['root','dir','depth','tenant'].forEach(id => $(id).addEventListener('change', refresh));
+refresh();
+</script>
+</body>
+</html>

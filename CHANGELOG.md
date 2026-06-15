@@ -21,4 +21,11 @@ The initial build, milestone by milestone. Not yet published to Hex — see
   consumer; `Ack`/`Retry`/`DeadLetter` mapped from `TernError.is_transient`. Verified
   end-to-end over RabbitMQ. Shared `tern/wire` JSON codec. (2 tests)
 
-26 tests total, green against real AGE + RabbitMQ.
+- **Showcase.** A built-in time-travel web explorer (`priv/explorer.html`, served at
+  `GET /`) over an evolving seeded pipeline (`gleam run -m showcase`). Drag the timeline
+  to query the graph as-of any instant.
+- **Fix.** `create_node` now `coalesce`s `valid_from` so re-upserting a node (or deleting
+  it via re-merge) no longer bumps its creation time forward — it would otherwise vanish
+  from earlier as-of queries. (Caught by the showcase; covered by a regression test.)
+
+27 tests total, green against real AGE + RabbitMQ.

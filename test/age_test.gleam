@@ -316,6 +316,37 @@ pub fn ingest_apply_builds_graph_from_an_event_test() {
   list.length(g.edges) |> should.equal(1)
 }
 
+// regression: re-upserting a node must NOT bump its valid_from forward, or it
+// would vanish from as-of queries before the re-upsert time. (Caught by the
+// showcase: a node referenced again later, or deleted via re-merge, disappeared.)
+pub fn re_upsert_preserves_valid_from_test() {
+  use backend, tenant <- with_backend
+  let id = Identity("vf", "postgres", Origin)
+  let assert Ok(_) =
+    backend.write(tenant, fn(s) {
+      let assert Ok(_) = s.create_node(NodeUpsert(id, "v1", dict.new(), at(1)))
+      Ok(Nil)
+    })
+  // re-upsert the same identity much later
+  let assert Ok(_) =
+    backend.write(tenant, fn(s) {
+      let assert Ok(_) = s.create_node(NodeUpsert(id, "v2", dict.new(), at(10)))
+      Ok(Nil)
+    })
+  // as-of t=5 the node must still be live (valid_from stayed at 1)
+  let assert Ok(g) =
+    backend.query_at_time(TimelineQuery(
+      tenant,
+      id,
+      at(5),
+      Downstream,
+      2,
+      0,
+      100,
+    ))
+  list.length(g.nodes) |> should.equal(1)
+}
+
 // --- M5: consumer (decode + apply, no broker needed) -----------------------
 
 pub fn consumer_process_acks_and_ingests_an_event_test() {

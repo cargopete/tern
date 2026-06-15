@@ -16,6 +16,7 @@ import gleam/result
 import gleam/string
 import gleam/time/timestamp
 import mist
+import simplifile
 import tern/core/model.{Identity, Tenant}
 import tern/core/storage.{
   type StorageBackend, type TimelineQuery, Both, Downstream, TimelineQuery,
@@ -39,11 +40,20 @@ pub fn start(store: StorageBackend, port: Int) {
 pub fn handler(store: StorageBackend) -> fn(Request) -> Response {
   fn(req) {
     case wisp.path_segments(req), req.method {
+      [], Get -> explorer()
       ["health"], Get -> wisp.json_response("{\"status\":\"ok\"}", 200)
       ["v1", "events"], Post -> ingest(req, store)
       ["v1", "graph"], Get -> graph(req, store)
       _, _ -> wisp.not_found()
     }
+  }
+}
+
+/// Serve the bundled time-travel explorer (priv/explorer.html), same-origin.
+fn explorer() -> Response {
+  case simplifile.read("priv/explorer.html") {
+    Ok(html) -> wisp.html_response(html, 200)
+    Error(_) -> wisp.not_found()
   }
 }
 
