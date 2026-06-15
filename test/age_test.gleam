@@ -13,6 +13,7 @@ import gleam/time/timestamp
 import gleeunit/should
 import pog
 import tern/age
+import tern/consumer
 import tern/core/event.{Create, Link, OriginLinks}
 import tern/core/model.{
   type Tenant, Consumer, Entity, Identity, Operation, Origin, Tenant,
@@ -21,6 +22,7 @@ import tern/core/storage.{
   Downstream, EdgeUpsert, NodeUpsert, TimelineQuery, Upstream,
 }
 import tern/ingest
+import wren
 import youid/uuid
 
 /// Run `f` with a live AGE backend, or skip if TERN_IT isn't set.
@@ -312,6 +314,30 @@ pub fn ingest_apply_builds_graph_from_an_event_test() {
   // the origin and the entity it targets, joined by one edge
   list.length(g.nodes) |> should.equal(2)
   list.length(g.edges) |> should.equal(1)
+}
+
+// --- M5: consumer (decode + apply, no broker needed) -----------------------
+
+pub fn consumer_process_acks_and_ingests_an_event_test() {
+  use backend, tenant <- with_backend
+  let Tenant(ns) = tenant
+  let payload =
+    "{\"tenant\":\""
+    <> ns
+    <> "\",\"role\":\"origin\",\"externalId\":\"c-src\",\"kind\":\"postgres\","
+    <> "\"name\":\"C\",\"operation\":\"create\",\"occurredAt\":1000,"
+    <> "\"targets\":[{\"externalId\":\"c-raw\",\"kind\":\"asset\"}]}"
+
+  consumer.process(payload, backend) |> should.equal(wren.Ack)
+  backend.find_node(tenant, Identity("c-src", "postgres", Origin))
+  |> is_some
+  |> should.be_true
+}
+
+pub fn consumer_dead_letters_undecodable_payloads_test() {
+  use backend, _tenant <- with_backend
+  consumer.process("this is not json", backend)
+  |> should.equal(wren.DeadLetter)
 }
 
 // --- tiny test helpers -----------------------------------------------------

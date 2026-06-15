@@ -8,3 +8,10 @@ services:
       - "5455:5432"
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  # Only needed for the event consumer (tern/consumer) and its demo.
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"

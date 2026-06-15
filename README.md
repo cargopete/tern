@@ -66,7 +66,7 @@ real Apache AGE database; the pure core is fully unit-tested.
 | ⬜ | **M3.5** · concurrency | Per-label unique constraint (AGE's `MERGE` is not atomic under concurrent writers); full temporal-reachability (path must be entirely live) |
 | ✅ | **M4** · `tern_server` | A `wisp`/`mist` HTTP API — `POST /v1/events` (ingest), `GET /v1/graph` (query), health. Plus `tern/ingest` (event → graph). 1 integration test + verified end-to-end over HTTP |
 | ⬜ | **M4.5** · streaming | `GET /v1/graph/stream` Server-Sent Events (needs the streaming backend method) |
-| ⬜ | **M5** · `tern_consumer` | A `wren`-driven event consumer with retry / dead-letter (every event is the retry unit) |
+| ✅ | **M5** · `tern_consumer` | A [`wren`](https://github.com/cargopete/wren)-driven event consumer; every event is the retry unit (`Ack`/`Retry`/`DeadLetter` from `TernError.is_transient`). 2 tests + verified end-to-end over RabbitMQ |
 | ⬜ | **M6** · publish | Docs, examples, CI with a real AGE service, Hex release |
 
 ---
@@ -284,6 +284,39 @@ curl "localhost:8080/v1/graph?tenant=acme&externalId=orders-db&kind=postgres&rol
 
 The JSON shape (`{nodes, edges, total, page}`) is deliberately simple to render in a
 browser graph viewer.
+
+## Event consumer (wren)
+
+`tern/consumer` ingests lineage events from RabbitMQ via [wren](https://github.com/cargopete/wren),
+tern's sibling AMQP library. The whole event is the retry unit, mapped straight from the
+storage error:
+
+| Outcome | wren verdict |
+|---------|--------------|
+| applied successfully | `Ack` |
+| transient storage failure (`TernError.is_transient`) | `Retry` (redelivered) |
+| undecodable, or permanent failure | `DeadLetter` |
+
+```gleam
+import wren
+import tern/consumer
+
+let assert Ok(conn) = wren.connect(wren.default_config())
+let assert Ok(channel) = wren.open_channel(conn)
+let assert Ok(_) = wren.declare_queue(channel, "tern.events")
+
+// each delivered JSON event is decoded and applied in one transaction
+let assert Ok(_) = consumer.start(channel, "tern.events", store)
+```
+
+Run the end-to-end demo (publishes an event, consumes it, queries it back):
+
+```sh
+docker compose up -d            # AGE + RabbitMQ
+gleam run -m consume_demo
+```
+
+> *wren carries the events; tern remembers where they came from.*
 
 ## Architecture
 
