@@ -65,16 +65,16 @@ pub type EdgeUpsert {
   EdgeUpsert(from: NodeId, to: NodeId, label: String, valid_from: Timestamp)
 }
 
-/// A single event's worth of mutations, applied atomically. On AGE this wraps
-/// one Postgres transaction so the graph mutations *and* the node snapshot land
-/// together or not at all. Dropping the session without `commit` rolls back.
+/// The mutating operations available inside a write transaction. A session is
+/// only ever handed to a `write` callback; returning `Ok` from that callback
+/// commits, returning `Error` (or crashing) rolls back — so on AGE one event's
+/// graph mutations *and* its node snapshot land together or not at all.
 pub type WriteSession {
   WriteSession(
     create_node: fn(NodeUpsert) -> Result(NodeId, TernError),
     create_edge: fn(EdgeUpsert) -> Result(Nil, TernError),
     soft_delete_node: fn(NodeId, Timestamp) -> Result(Nil, TernError),
     store_snapshot: fn(Node) -> Result(Nil, TernError),
-    commit: fn() -> Result(Nil, TernError),
   )
 }
 
@@ -82,8 +82,12 @@ pub type WriteSession {
 /// dependency is pulled in.)
 pub type StorageBackend {
   StorageBackend(
+    /// Idempotently create the tenant's graph, labels and snapshot table.
+    ensure_ready: fn(Tenant) -> Result(Nil, TernError),
     find_node: fn(Tenant, Identity) -> Result(Option(NodeId), TernError),
     query_at_time: fn(TimelineQuery) -> Result(PagedGraph, TernError),
-    begin_write: fn(Tenant) -> Result(WriteSession, TernError),
+    /// Run a unit of work atomically. Commits on `Ok`, rolls back on `Error`.
+    write: fn(Tenant, fn(WriteSession) -> Result(Nil, TernError)) ->
+      Result(Nil, TernError),
   )
 }

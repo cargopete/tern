@@ -21,8 +21,9 @@ What `tern` is growing into — the roadmap:
 
 - ✅ **M0** · Gleam ↔ Apache AGE round-trip (create graph, Cypher write/read, decode `agtype`)
 - ✅ **M1** · `tern_core` — node/edge model, lineage events, the `StorageBackend` behaviour, temporal `as-of` logic (pure, no I/O; 12 tests)
-- ⬜ **M2** · `tern_age` — the AGE backend: per-tenant graphs, node/edge upsert (`MERGE` + unique constraints), idempotent writes
-- ⬜ **M3** · temporal traversal (`as-of(T)`, up/down/both, depth, pagination) + atomic write sessions (graph + snapshot in one transaction)
+- ✅ **M2** · `tern_age` — the AGE backend: per-tenant graphs, idempotent node/edge upserts (`MERGE` + `coalesce`), atomic writes (graph + snapshot in one transaction), find. 5 integration tests against real AGE.
+- ⬜ **M3** · temporal traversal (`as-of(T)`, up/down/both, depth, pagination) + soft-delete revival
+- ⬜ **M3.5** · concurrent-writer hardening (per-label unique constraint — AGE's `MERGE` isn't atomic)
 - ⬜ **M4** · `tern_server` — `wisp`/`mist` HTTP API: ingest, query, **SSE streaming**, health
 - ⬜ **M5** · `tern_consumer` — `wren`-driven event ingestion with retry / dead-letter (every event is the retry unit)
 - ⬜ **M6** · docs, examples, Hex publish
